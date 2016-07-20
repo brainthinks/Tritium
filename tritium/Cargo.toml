@@ -1,0 +1,15 @@
+[package]
+name = "tritium"
+version = "0.1.0"
+authors = ["Halogen002 <iambetterthanyourface@hotmail.com>"]
+
+[dependencies]
+byteorder = "*"
+
+[profile.test]
+opt-level = 3
+debug = true
+rpath = false
+lto = false
+debug-assertions = true
+codegen-units = 1
