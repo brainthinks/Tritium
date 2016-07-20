@@ -1,3 +1,7 @@
+target
+Cargo.lock
+*.map
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
