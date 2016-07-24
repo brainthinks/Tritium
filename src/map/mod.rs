@@ -90,6 +90,10 @@ pub struct Map {
     /// a map. It must not exceed 31 characters.
     pub name : String,
 
+    /// This is the build of the map file. This is read by map editors. It must not exceed 31
+    /// characters.
+    pub build : String,
+
     /// Maps contain an array of tags which make up the map's resources for gameplay.
     pub tag_array : TagArray
 }
@@ -117,6 +121,12 @@ impl Map {
 
         // Get the file name of the cache file.
         let name = match string_from_slice(&cache_file[0x20..]) {
+            Ok(n) => n,
+            Err(_) => return Err("name could not be parsed")
+        };
+
+        // Get the build number of the cache file.
+        let build = match string_from_slice(&cache_file[0x40..]) {
             Ok(n) => n,
             Err(_) => return Err("name could not be parsed")
         };
@@ -531,6 +541,7 @@ impl Map {
         Ok(Map {
             kind : (Game::from_u32(LittleEndian::read_u32(&cache_file[0x4..])),MapType::from_u32(LittleEndian::read_u32(&cache_file[0x60..]))),
             name : name,
+            build : build,
             tag_array : TagArray::new(tags,scenario_tag)
         })
     }
@@ -544,9 +555,13 @@ impl Map {
         LittleEndian::write_u32(&mut header[0x7FC..],0x666F6F74);
         LittleEndian::write_u32(&mut header[0x4..], self.kind.0.as_u32());
         LittleEndian::write_u32(&mut header[0x60..], self.kind.1.as_u32());
-        let utf8 = self.name.as_bytes();
-        if utf8.len() > 0x1F {
+        let name_utf8 = self.name.as_bytes();
+        if name_utf8.len() > 0x1F {
             return Err("map name exceeds 31 characters");
+        }
+        let build_utf8 = self.build.as_bytes();
+        if build_utf8.len() > 0x1F {
+            return Err("build exceeds 31 characters");
         }
         let write_bytes = |destination : &mut [u8], source : &[u8]| {
             assert!(source.len() < destination.len());
@@ -554,8 +569,8 @@ impl Map {
                 unsafe { *destination.get_unchecked_mut(i) = *source.get_unchecked(i) };
             }
         };
-        write_bytes(&mut header[0x20..], &utf8);
-        write_bytes(&mut header[0x40..], "Tritium 1.0".as_bytes());
+        write_bytes(&mut header[0x20..], &name_utf8);
+        write_bytes(&mut header[0x40..], &build_utf8);
 
         let mut sbsp_data : Vec<u8> = Vec::new();
         let mut resource_data : Vec<u8> = Vec::new();
@@ -871,7 +886,10 @@ impl Map {
             LittleEndian::write_u32(&mut tag_header[0x0..], tag_header_address + tag_header_len as u32);
 
             // Principal scenario tag
-            LittleEndian::write_u32(&mut tag_header[0x4..], tag_index_to_tag_id(*self.tag_array.principal_tag().as_ref().unwrap()));
+            LittleEndian::write_u32(&mut tag_header[0x4..], match self.tag_array.principal_tag().as_ref() {
+                Some(n) => tag_index_to_tag_id(*n),
+                None => 0xFFFFFFFF
+            });
 
             // Random number
             LittleEndian::write_u32(&mut tag_header[0x8..], 0x00010000);
