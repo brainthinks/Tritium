@@ -54,7 +54,7 @@ pub struct Tag {
     pub resource_index : Option<u32>,
 
     /// This is an address used by Halo.
-    memory_address : Option<u32>
+    pub memory_address : Option<u32>
 }
 impl Tag {
     /// Create a new Tag. This consumes all of the data used.
