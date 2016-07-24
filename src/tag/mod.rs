@@ -401,16 +401,48 @@ impl Tag {
         let memory_address_end = memory_address + tag_data.len() as u32;
         let mut pointers = Vec::new();
 
-        let mut i = 0;
-        while i < tag_data.len()-12+1 {
-            let count = LittleEndian::read_u32(&tag_data[i..]);
-            let address = LittleEndian::read_u32(&tag_data[i + 4..]);
-            let zero = LittleEndian::read_u32(&tag_data[i + 8..]);
-            if count > 0 && zero == 0 && address >= memory_address as u32 && address < memory_address_end {
-                pointers.push(i + 4);
+        match self.tag_class.0 {
+            BITM => {
+                let sequences_count = LittleEndian::read_u32(&tag_data[0x54..]) as usize;
+                if sequences_count > 0 {
+                    pointers.push(0x58);
+                    let sequences_offset = self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x58..])).unwrap();
+                    let sequences = &tag_data[sequences_offset .. sequences_offset + sequences_count * 64];
+                    for i in 0..sequences_count {
+                        let sequence = &sequences[i * 64 .. (i+1)*64];
+                        let seq_count = LittleEndian::read_u32(&sequence[0x34..]);
+                        if seq_count > 0 {
+                            pointers.push(i * 64 + sequences_offset + 0x38);
+                            self.offset_from_memory_address(LittleEndian::read_u32(&sequence[0x38..])).unwrap();
+                        }
+                    }
+                }
+                let bitmaps_count = LittleEndian::read_u32(&tag_data[0x60..]);
+                if bitmaps_count > 0 {
+                    self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x64..])).unwrap();
+                    pointers.push(0x64);
+                }
+            },
+            _ => {
+                let mut i = 0;
+                if tag_data.len() >= 12 {
+                    while i < tag_data.len()-12+2 {
+                        let count = LittleEndian::read_u32(&tag_data[i..]);
+                        let address = LittleEndian::read_u32(&tag_data[i + 4..]);
+                        let zero = LittleEndian::read_u32(&tag_data[i + 8..]);
+                        if count > 0 && zero == 0 && address >= memory_address as u32 && address < memory_address_end {
+                            pointers.push(i + 4);
+                            i += 0xC;
+                        }
+                        else {
+                            i += 2;
+                        }
+                    }
+                }
             }
-            i += 2;
         }
+
+
         pointers
     }
 }
