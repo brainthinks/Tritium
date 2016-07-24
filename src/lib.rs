@@ -5,14 +5,13 @@ pub mod map;
 #[cfg(test)]
 mod tests {
     use map::*;
+    use test::Bencher;
+    use std::io::{Write,Read};
+    use std::fs::File;
 
     #[test]
     pub fn test() {
-        #![allow(unused_imports, unused_variables)]
-        use std::io::{Write,Read};
-        use std::fs::File;
-
-        let mut file = File::open("deathisland.map").unwrap();
+        let mut file = File::open("bloodgulch.map").unwrap();
         let mut data = Vec::new();
         file.read_to_end(&mut data).unwrap();
 
