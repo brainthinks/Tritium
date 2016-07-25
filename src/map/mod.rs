@@ -963,22 +963,14 @@ impl Map {
     }
 }
 
-// This function will create a C string from a slice, checking for null termination. This should be
-// replaced once cstr_from_bytes is stabilized.
+// This function will create a string from a C string in a slice.
 fn string_from_slice(slice : &[u8]) -> Result<String,&'static str> {
-    let mut len = 0;
-    loop {
-        if len == slice.len() {
-            return Err("string had no null-termination")
-        }
-        match slice[len] {
-            0 => break,
-            _ => len += 1
-        }
-    }
-    match String::from_utf8(slice[..len].to_owned()) {
-        Ok(n) => Ok(n),
-        Err(_) => Err("invalid utf8 string")
+    match slice.iter().position(|&x| x == 0) {
+        Some(n) => match String::from_utf8(slice[..n].to_owned()) {
+            Ok(n) => Ok(n),
+            Err(_) => Err("invalid utf8 string")
+        },
+        None => Err("string had no null-termination")
     }
 }
 
