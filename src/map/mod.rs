@@ -234,24 +234,26 @@ impl Map {
                 Err(_) => return Err("scenario tag sbsp pointer is invalid")
             };
             let sbsp_count = sbsp_reflexive.count;
-            let sbsp_offset = address_to_offset(sbsp_reflexive.address).unwrap();
-            let sbsp_size = sbsp_count * 32;
-            let sbsp_data = &meta_data[sbsp_offset .. sbsp_offset + sbsp_size];
-            for i in 0..sbsp_count {
-                let sbsp = &sbsp_data[i*32 .. (i+1)*32];
-                let tag_index = LittleEndian::read_u32(&sbsp[0x1C..]) as usize & 0xFFFF;
-                let tag_memory_address = LittleEndian::read_u32(&sbsp[0x8..]);
-                let tag_file_offset = LittleEndian::read_u32(&sbsp[0x0..]) as usize;
-                let tag_size = LittleEndian::read_u32(&sbsp[0x4..]) as usize;
-                if tag_file_offset + tag_size > file_size {
-                    return Err("invalid sbsp tag")
+            if sbsp_count > 0 {
+                let sbsp_offset = address_to_offset(sbsp_reflexive.address).unwrap();
+                let sbsp_size = sbsp_count * 32;
+                let sbsp_data = &meta_data[sbsp_offset .. sbsp_offset + sbsp_size];
+                for i in 0..sbsp_count {
+                    let sbsp = &sbsp_data[i*32 .. (i+1)*32];
+                    let tag_index = LittleEndian::read_u32(&sbsp[0x1C..]) as usize & 0xFFFF;
+                    let tag_memory_address = LittleEndian::read_u32(&sbsp[0x8..]);
+                    let tag_file_offset = LittleEndian::read_u32(&sbsp[0x0..]) as usize;
+                    let tag_size = LittleEndian::read_u32(&sbsp[0x4..]) as usize;
+                    if tag_file_offset + tag_size > file_size {
+                        return Err("invalid sbsp tag")
+                    }
+                    sbsps.push((
+                        tag_index,
+                        tag_memory_address,
+                        tag_file_offset,
+                        tag_size
+                    ));
                 }
-                sbsps.push((
-                    tag_index,
-                    tag_memory_address,
-                    tag_file_offset,
-                    tag_size
-                ));
             }
             sbsps
         }
@@ -372,28 +374,30 @@ impl Map {
                             Err(_) => return Err("invalid address on bitmap reflexive")
                         };
 
-                        let offset = (bitmaps_reflexive.address - memory_address) as usize;
-                        let mut bitmaps = &mut tag_data[offset .. offset + bitmaps_reflexive.count * 0x30];
+                        if bitmaps_reflexive.count > 0 {
+                            let offset = (bitmaps_reflexive.address - memory_address) as usize;
+                            let mut bitmaps = &mut tag_data[offset .. offset + bitmaps_reflexive.count * 0x30];
 
-                        for i in 0..bitmaps_reflexive.count {
-                            let mut bitmap = &mut bitmaps[i * 0x30 .. (i+1)*0x30];
+                            for i in 0..bitmaps_reflexive.count {
+                                let mut bitmap = &mut bitmaps[i * 0x30 .. (i+1)*0x30];
 
-                            // Check if internalized...
-                            if bitmap[0xF] & 1 == 0 {
-                                let data_offset = LittleEndian::read_u32(&bitmap[0x18..]) as usize;
-                                let data_size = LittleEndian::read_u32(&bitmap[0x1C..]) as usize;
-                                if data_offset + data_size > cache_file.len() {
-                                    return Err("bitmap points to invalid data")
-                                }
-                                let data = &cache_file[data_offset .. data_offset + data_size];
-                                if asset_data.is_none() {
-                                    asset_data = Some(data.to_owned());
-                                    LittleEndian::write_u32(&mut bitmap[0x18..], 0x0);
-                                }
-                                else {
-                                    let mut asset_data = asset_data.as_mut().unwrap();
-                                    LittleEndian::write_u32(&mut bitmap[0x18..], asset_data.len() as u32);
-                                    asset_data.extend(data);
+                                // Check if internalized...
+                                if bitmap[0xF] & 1 == 0 {
+                                    let data_offset = LittleEndian::read_u32(&bitmap[0x18..]) as usize;
+                                    let data_size = LittleEndian::read_u32(&bitmap[0x1C..]) as usize;
+                                    if data_offset + data_size > cache_file.len() {
+                                        return Err("bitmap points to invalid data")
+                                    }
+                                    let data = &cache_file[data_offset .. data_offset + data_size];
+                                    if asset_data.is_none() {
+                                        asset_data = Some(data.to_owned());
+                                        LittleEndian::write_u32(&mut bitmap[0x18..], 0x0);
+                                    }
+                                    else {
+                                        let mut asset_data = asset_data.as_mut().unwrap();
+                                        LittleEndian::write_u32(&mut bitmap[0x18..], asset_data.len() as u32);
+                                        asset_data.extend(data);
+                                    }
                                 }
                             }
                         }
@@ -414,38 +418,44 @@ impl Map {
                             Err(_) => return Err("invalid address on sound range reflexive")
                         };
 
-                        let offset = (ranges_reflexive.address - memory_address) as usize;
+                        if ranges_reflexive.count > 0 {
+                            let offset = (ranges_reflexive.address - memory_address) as usize;
+                            let ranges = tag_data[offset .. offset + ranges_reflexive.count * 0x48].to_owned();
 
-                        let ranges = tag_data[offset .. offset + ranges_reflexive.count * 0x48].to_owned();
-                        for i in 0..ranges_reflexive.count as usize {
-                            let range = &ranges[i * 0x48 .. (i+1)* 0x48];
-                            let permutations_reflexive = match Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C) {
-                                Ok(n) => n,
-                                Err(_) => return Err("invalid address on sound permutation reflexive")
-                            };
+                            for i in 0..ranges_reflexive.count as usize {
+                                let range = &ranges[i * 0x48 .. (i+1)* 0x48];
+                                let permutations_reflexive = match Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C) {
+                                    Ok(n) => n,
+                                    Err(_) => return Err("invalid address on sound permutation reflexive")
+                                };
 
-                            let offset = (permutations_reflexive.address - memory_address) as usize;
-                            let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
+                                if permutations_reflexive.count == 0 {
+                                    continue;
+                                }
 
-                            for p in 0..permutations_reflexive.count {
-                                let mut sound = &mut permutations[p * 0x7C .. (p+1) * 0x7C];
+                                let offset = (permutations_reflexive.address - memory_address) as usize;
+                                let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
 
-                                // Check if internalized...
-                                if sound[0x44] & 1 == 0 {
-                                    let data_offset = LittleEndian::read_u32(&sound[0x48..]) as usize;
-                                    let data_size = LittleEndian::read_u32(&sound[0x40..]) as usize;
-                                    if data_offset + data_size > cache_file.len() {
-                                        return Err("sound points to invalid data")
-                                    }
-                                    let data = &cache_file[data_offset .. data_offset + data_size];
-                                    if asset_data.is_none() {
-                                        asset_data = Some(data.to_owned());
-                                        LittleEndian::write_u32(&mut sound[0x48..], 0x0);
-                                    }
-                                    else {
-                                        let mut asset_data = asset_data.as_mut().unwrap();
-                                        LittleEndian::write_u32(&mut sound[0x48..], asset_data.len() as u32);
-                                        asset_data.extend(data);
+                                for p in 0..permutations_reflexive.count {
+                                    let mut sound = &mut permutations[p * 0x7C .. (p+1) * 0x7C];
+
+                                    // Check if internalized...
+                                    if sound[0x44] & 1 == 0 {
+                                        let data_offset = LittleEndian::read_u32(&sound[0x48..]) as usize;
+                                        let data_size = LittleEndian::read_u32(&sound[0x40..]) as usize;
+                                        if data_offset + data_size > cache_file.len() {
+                                            return Err("sound points to invalid data")
+                                        }
+                                        let data = &cache_file[data_offset .. data_offset + data_size];
+                                        if asset_data.is_none() {
+                                            asset_data = Some(data.to_owned());
+                                            LittleEndian::write_u32(&mut sound[0x48..], 0x0);
+                                        }
+                                        else {
+                                            let mut asset_data = asset_data.as_mut().unwrap();
+                                            LittleEndian::write_u32(&mut sound[0x48..], asset_data.len() as u32);
+                                            asset_data.extend(data);
+                                        }
                                     }
                                 }
                             }
@@ -465,57 +475,63 @@ impl Map {
                             Err(_) => return Err("invalid address on model geometry reflexive")
                         };
 
-                        let offset = (geometries_reflexive.address - memory_address) as usize;
+                        if geometries_reflexive.count > 0 {
+                            let offset = (geometries_reflexive.address - memory_address) as usize;
 
-                        let geometries = tag_data[offset .. offset + geometries_reflexive.count * 0x30].to_owned();
-                        for i in 0..geometries_reflexive.count as usize {
-                            let geometry = &geometries[i * 0x30 .. (i+1)* 0x30];
-                            let parts_reflexive = match Reflexive::serialize(&geometry[0x24..],memory_address,memory_address + potential_size as u32, 0x84) {
-                                Ok(n) => n,
-                                Err(_) => return Err("invalid address on model part reflexive")
-                            };
+                            let geometries = tag_data[offset .. offset + geometries_reflexive.count * 0x30].to_owned();
+                            for i in 0..geometries_reflexive.count as usize {
+                                let geometry = &geometries[i * 0x30 .. (i+1)* 0x30];
+                                let parts_reflexive = match Reflexive::serialize(&geometry[0x24..],memory_address,memory_address + potential_size as u32, 0x84) {
+                                    Ok(n) => n,
+                                    Err(_) => return Err("invalid address on model part reflexive")
+                                };
 
-                            let offset = (parts_reflexive.address - memory_address) as usize;
-                            let mut parts = &mut tag_data[offset .. offset + parts_reflexive.count * 0x84];
-
-                            for p in 0..parts_reflexive.count {
-                                let mut part = &mut parts[p * 0x84 .. (p+1) * 0x84];
-                                let index_count = LittleEndian::read_u32(&part[0x48 + 0x0..]) as usize;
-                                let index_offset = LittleEndian::read_u32(&part[0x48 + 0x4..]) as usize;
-                                if LittleEndian::read_u32(&part[0x48 + 0x8..]) as usize != index_offset {
-                                    return Err("invalid model index offset");
+                                if parts_reflexive.count == 0 {
+                                    continue;
                                 }
 
-                                let index_size = index_count * 0x2 + 4;
-                                let index_end = index_size + index_offset as usize;
-                                if index_end > indices.len() {
-                                    return Err("invalid model index offset/size");
+                                let offset = (parts_reflexive.address - memory_address) as usize;
+                                let mut parts = &mut tag_data[offset .. offset + parts_reflexive.count * 0x84];
+
+                                for p in 0..parts_reflexive.count {
+                                    let mut part = &mut parts[p * 0x84 .. (p+1) * 0x84];
+                                    let index_count = LittleEndian::read_u32(&part[0x48 + 0x0..]) as usize;
+                                    let index_offset = LittleEndian::read_u32(&part[0x48 + 0x4..]) as usize;
+                                    if LittleEndian::read_u32(&part[0x48 + 0x8..]) as usize != index_offset {
+                                        return Err("invalid model index offset");
+                                    }
+
+                                    let index_size = index_count * 0x2 + 4;
+                                    let index_end = index_size + index_offset as usize;
+                                    if index_end > indices.len() {
+                                        return Err("invalid model index offset/size");
+                                    }
+
+                                    let vertex_count = LittleEndian::read_u32(&part[0x58 + 0x0..]) as usize;
+                                    let vertex_offset = LittleEndian::read_u32(&part[0x58 + 0xC..]) as usize;
+                                    let vertex_size = vertex_count * 0x44;
+                                    let vertex_end = vertex_offset + vertex_size;
+                                    if vertex_end > vertices.len() {
+                                        return Err("invalid model vertex offset/size");
+                                    }
+
+                                    if asset_data.is_none() {
+                                        asset_data = Some(Vec::new());
+                                    }
+
+                                    let mut asset_data = asset_data.as_mut().unwrap();
+                                    let asset_data_len = asset_data.len() as u32;
+
+                                    // Write vertex offset.
+                                    LittleEndian::write_u32(&mut part[0x58 + 0xC..], asset_data_len);
+
+                                    // Write index offset.
+                                    LittleEndian::write_u32(&mut part[0x48 + 0x4..], asset_data_len + vertex_size as u32);
+                                    LittleEndian::write_u32(&mut part[0x48 + 0x8..], asset_data_len + vertex_size as u32);
+
+                                    asset_data.extend(&vertices[vertex_offset .. vertex_end]);
+                                    asset_data.extend(&indices[index_offset .. index_end]);
                                 }
-
-                                let vertex_count = LittleEndian::read_u32(&part[0x58 + 0x0..]) as usize;
-                                let vertex_offset = LittleEndian::read_u32(&part[0x58 + 0xC..]) as usize;
-                                let vertex_size = vertex_count * 0x44;
-                                let vertex_end = vertex_offset + vertex_size;
-                                if vertex_end > vertices.len() {
-                                    return Err("invalid model vertex offset/size");
-                                }
-
-                                if asset_data.is_none() {
-                                    asset_data = Some(Vec::new());
-                                }
-
-                                let mut asset_data = asset_data.as_mut().unwrap();
-                                let asset_data_len = asset_data.len() as u32;
-
-                                // Write vertex offset.
-                                LittleEndian::write_u32(&mut part[0x58 + 0xC..], asset_data_len);
-
-                                // Write index offset.
-                                LittleEndian::write_u32(&mut part[0x48 + 0x4..], asset_data_len + vertex_size as u32);
-                                LittleEndian::write_u32(&mut part[0x48 + 0x8..], asset_data_len + vertex_size as u32);
-
-                                asset_data.extend(&vertices[vertex_offset .. vertex_end]);
-                                asset_data.extend(&indices[index_offset .. index_end]);
                             }
                         }
                         asset_data
@@ -712,6 +728,10 @@ impl Map {
                         Err(_) => return Err("invalid address on bitmap reflexive")
                     };
 
+                    if bitmaps_reflexive.count == 0 {
+                        continue;
+                    }
+
                     let offset = (bitmaps_reflexive.address - memory_address) as usize;
                     let mut bitmaps = &mut tag_data[offset .. offset + bitmaps_reflexive.count * 0x30];
 
@@ -749,15 +769,23 @@ impl Map {
                         Err(_) => return Err("invalid address on sound range reflexive")
                     };
 
-                    let offset = (ranges_reflexive.address - memory_address) as usize;
+                    if ranges_reflexive.count == 0 {
+                        continue;
+                    }
 
+                    let offset = (ranges_reflexive.address - memory_address) as usize;
                     let ranges = tag_data[offset .. offset + ranges_reflexive.count * 0x48].to_owned();
+
                     for i in 0..ranges_reflexive.count as usize {
                         let range = &ranges[i * 0x48 .. (i+1)* 0x48];
                         let permutations_reflexive = match Reflexive::serialize(&range[0x3C..],memory_address,memory_address + tag_data_len as u32, 0x7C) {
                             Ok(n) => n,
                             Err(_) => return Err("invalid address on sound permutation reflexive")
                         };
+
+                        if permutations_reflexive.count == 0 {
+                            continue;
+                        }
 
                         let offset = (permutations_reflexive.address - memory_address) as usize;
                         let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
@@ -796,15 +824,23 @@ impl Map {
                         Err(_) => return Err("invalid address on model geometry reflexive")
                     };
 
-                    let offset = (geometries_reflexive.address - memory_address) as usize;
+                    if geometries_reflexive.count == 0 {
+                        continue;
+                    }
 
+                    let offset = (geometries_reflexive.address - memory_address) as usize;
                     let geometries = tag_data[offset .. offset + geometries_reflexive.count * 0x30].to_owned();
+
                     for i in 0..geometries_reflexive.count as usize {
                         let geometry = &geometries[i * 0x30 .. (i+1)* 0x30];
                         let parts_reflexive = match Reflexive::serialize(&geometry[0x24..],memory_address,memory_address + tag_data_len as u32, 0x84) {
                             Ok(n) => n,
                             Err(_) => return Err("invalid address on model part reflexive")
                         };
+
+                        if parts_reflexive.count == 0 {
+                            continue;
+                        }
 
                         let offset = (parts_reflexive.address - memory_address) as usize;
                         let mut parts = &mut tag_data[offset .. offset + parts_reflexive.count * 0x84];
@@ -990,8 +1026,8 @@ impl Reflexive {
             let address = LittleEndian::read_u32(&data[4..]);
             let count = LittleEndian::read_u32(&data[0..]) as usize;
 
-            if address >= max_address || address < min_address || count * reflexive_size + (address as usize) > (max_address as usize) {
-                Err("data exceeds max_address")
+            if count > 0 && (address >= max_address || address < min_address || count * reflexive_size + (address as usize) > (max_address as usize)) {
+                Err("data exceeds address range")
             }
             else {
                 Ok(Reflexive {
