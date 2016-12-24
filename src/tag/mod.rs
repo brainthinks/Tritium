@@ -338,7 +338,7 @@ impl Tag {
     }
 
     /// Insert bytes into a section of the tag data while also adjusting memory pointers that use
-    /// any data after it.
+    /// any data at that location.
     ///
     /// This function will panic if there is no tag data or memory address used by the tag.
     pub fn insert_data(&mut self, offset : usize, data : &[u8]) {
@@ -354,11 +354,11 @@ impl Tag {
     }
 
     /// Delete bytes into a section of the tag data while also adjusting memory pointers that use
-    /// any data after it. This may be useful when destroying structures into the tag data.
+    /// any data after the chunk. This may be useful when destroying structures into the tag data.
     ///
     /// This function will panic if there is no tag data or memory address used by the tag.
     pub fn delete_data(&mut self, offset : usize, size : usize) {
-        self.offset_pointers(offset,size as u32,true);
+        self.offset_pointers(offset+size,size as u32,true);
         let mut tag_data = self.data.as_mut().unwrap();
         for _ in 0..size {
             tag_data.remove(offset);
