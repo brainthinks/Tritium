@@ -7,6 +7,7 @@ extern crate byteorder;
 use self::byteorder::{ByteOrder,LittleEndian};
 use super::tag::*;
 
+
 #[derive(PartialEq,Clone)]
 /// The game can vary from map to map, using a different version number for each game. Maps from
 /// one game will not work on maps from another game.
@@ -269,7 +270,6 @@ impl Map {
         // Go through all of the tags.
         for i in 0..tag_count {
             let tag = &tag_array[i * 0x20 .. (i+1) * 0x20];
-
             let tag_name = match address_to_offset(LittleEndian::read_u32(&tag[0x10..])) {
                 Some(n) => {
                     match string_from_slice(&meta_data[n..]) {
@@ -382,27 +382,32 @@ impl Map {
                             let offset = (bitmaps_reflexive.address - memory_address) as usize;
                             let mut bitmaps = &mut tag_data[offset .. offset + bitmaps_reflexive.count * 0x30];
 
-                            for i in 0..bitmaps_reflexive.count {
-                                let mut bitmap = &mut bitmaps[i * 0x30 .. (i+1)*0x30];
+                            let mut asset_data_len = 0;
 
+                            // Get asset data size.
+                            for i in 0..bitmaps_reflexive.count {
+                                let bitmap = &mut bitmaps[i * 0x30 .. (i+1)*0x30];
                                 // Check if internalized...
                                 if bitmap[0xF] & 1 == 0 {
-                                    let data_offset = LittleEndian::read_u32(&bitmap[0x18..]) as usize;
-                                    let data_size = LittleEndian::read_u32(&bitmap[0x1C..]) as usize;
-                                    if data_offset + data_size > cache_file.len() {
-                                        return Err("bitmap points to invalid data")
-                                    }
-                                    let data = &cache_file[data_offset .. data_offset + data_size];
-                                    if asset_data.is_none() {
-                                        asset_data = Some(data.to_owned());
-                                        LittleEndian::write_u32(&mut bitmap[0x18..], 0x0);
-                                    }
-                                    else {
-                                        let mut asset_data = asset_data.as_mut().unwrap();
-                                        LittleEndian::write_u32(&mut bitmap[0x18..], asset_data.len() as u32);
-                                        asset_data.extend(data);
+                                    asset_data_len += LittleEndian::read_u32(&bitmap[0x18..]);
+                                }
+                            }
+
+                            if asset_data_len != 0 {
+                                let mut asset_data_vec = Vec::new();
+                                asset_data_vec.reserve_exact(asset_data_len as usize);
+
+                                for i in 0..bitmaps_reflexive.count {
+                                    let mut bitmap = &mut bitmaps[i * 0x30 .. (i+1)*0x30];
+                                    if bitmap[0xF] & 1 == 0 {
+                                        let data_offset = LittleEndian::read_u32(&bitmap[0x18..]) as usize;
+                                        let data_size = LittleEndian::read_u32(&bitmap[0x1C..]) as usize;
+                                        let data = &cache_file[data_offset .. data_offset + data_size];
+                                        LittleEndian::write_u32(&mut bitmap[0x18..], asset_data_vec.len() as u32);
+                                        asset_data_vec.extend_from_slice(data);
                                     }
                                 }
+                                asset_data = Some(asset_data_vec);
                             }
                         }
 
@@ -425,6 +430,7 @@ impl Map {
                         if ranges_reflexive.count > 0 {
                             let offset = (ranges_reflexive.address - memory_address) as usize;
                             let ranges = tag_data[offset .. offset + ranges_reflexive.count * 0x48].to_owned();
+                            let mut asset_data_len = 0;
 
                             for i in 0..ranges_reflexive.count as usize {
                                 let range = &ranges[i * 0x48 .. (i+1)* 0x48];
@@ -438,10 +444,10 @@ impl Map {
                                 }
 
                                 let offset = (permutations_reflexive.address - memory_address) as usize;
-                                let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
+                                let permutations = &tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
 
                                 for p in 0..permutations_reflexive.count {
-                                    let mut sound = &mut permutations[p * 0x7C .. (p+1) * 0x7C];
+                                    let sound = &permutations[p * 0x7C .. (p+1) * 0x7C];
 
                                     // Check if internalized...
                                     if sound[0x44] & 1 == 0 {
@@ -450,18 +456,43 @@ impl Map {
                                         if data_offset + data_size > cache_file.len() {
                                             return Err("sound points to invalid data")
                                         }
-                                        let data = &cache_file[data_offset .. data_offset + data_size];
-                                        if asset_data.is_none() {
-                                            asset_data = Some(data.to_owned());
-                                            LittleEndian::write_u32(&mut sound[0x48..], 0x0);
-                                        }
-                                        else {
-                                            let mut asset_data = asset_data.as_mut().unwrap();
-                                            LittleEndian::write_u32(&mut sound[0x48..], asset_data.len() as u32);
-                                            asset_data.extend(data);
+                                        asset_data_len += data_size;
+                                    }
+                                }
+                            }
+
+                            if asset_data_len != 0 {
+                                let mut asset_data_vec = Vec::new();
+                                asset_data_vec.reserve_exact(asset_data_len as usize);
+
+                                for i in 0..ranges_reflexive.count as usize {
+                                    let range = &ranges[i * 0x48 .. (i+1)* 0x48];
+                                    let permutations_reflexive = Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C).unwrap();
+
+                                    if permutations_reflexive.count == 0 {
+                                        continue;
+                                    }
+
+                                    let offset = (permutations_reflexive.address - memory_address) as usize;
+                                    let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
+
+                                    for p in 0..permutations_reflexive.count {
+                                        let mut sound = &mut permutations[p * 0x7C .. (p+1) * 0x7C];
+
+                                        // Check if internalized...
+                                        if sound[0x44] & 1 == 0 {
+                                            let data_offset = LittleEndian::read_u32(&sound[0x48..]) as usize;
+                                            let data_size = LittleEndian::read_u32(&sound[0x40..]) as usize;
+
+                                            let data = &cache_file[data_offset .. data_offset + data_size];
+
+                                            LittleEndian::write_u32(&mut sound[0x48..], asset_data_vec.len() as u32);
+                                            asset_data_vec.extend_from_slice(data);
                                         }
                                     }
                                 }
+
+                                asset_data = Some(asset_data_vec);
                             }
                         }
                         asset_data
@@ -481,8 +512,9 @@ impl Map {
 
                         if geometries_reflexive.count > 0 {
                             let offset = (geometries_reflexive.address - memory_address) as usize;
-
                             let geometries = tag_data[offset .. offset + geometries_reflexive.count * 0x30].to_owned();
+                            let mut asset_data_len = 0;
+
                             for i in 0..geometries_reflexive.count as usize {
                                 let geometry = &geometries[i * 0x30 .. (i+1)* 0x30];
                                 let parts_reflexive = match Reflexive::serialize(&geometry[0x24..],memory_address,memory_address + potential_size as u32, 0x84) {
@@ -495,10 +527,10 @@ impl Map {
                                 }
 
                                 let offset = (parts_reflexive.address - memory_address) as usize;
-                                let mut parts = &mut tag_data[offset .. offset + parts_reflexive.count * 0x84];
+                                let parts = &tag_data[offset .. offset + parts_reflexive.count * 0x84];
 
                                 for p in 0..parts_reflexive.count {
-                                    let mut part = &mut parts[p * 0x84 .. (p+1) * 0x84];
+                                    let part = &parts[p * 0x84 .. (p+1) * 0x84];
                                     let index_count = LittleEndian::read_u32(&part[0x48 + 0x0..]) as usize;
                                     let index_offset = LittleEndian::read_u32(&part[0x48 + 0x4..]) as usize;
                                     if LittleEndian::read_u32(&part[0x48 + 0x8..]) as usize != index_offset {
@@ -519,23 +551,52 @@ impl Map {
                                         return Err("invalid model vertex offset/size");
                                     }
 
-                                    if asset_data.is_none() {
-                                        asset_data = Some(Vec::new());
+                                    asset_data_len += vertex_size + index_size;
+                                }
+                            }
+
+                            if asset_data_len != 0 {
+                                let mut asset_data_vec = Vec::new();
+                                asset_data_vec.reserve_exact(asset_data_len as usize);
+
+                                for i in 0..geometries_reflexive.count as usize {
+                                    let geometry = &geometries[i * 0x30 .. (i+1)* 0x30];
+                                    let parts_reflexive = Reflexive::serialize(&geometry[0x24..],memory_address,memory_address + potential_size as u32, 0x84).unwrap();
+
+                                    if parts_reflexive.count == 0 {
+                                        continue;
                                     }
 
-                                    let mut asset_data = asset_data.as_mut().unwrap();
-                                    let asset_data_len = asset_data.len() as u32;
+                                    let offset = (parts_reflexive.address - memory_address) as usize;
+                                    let mut parts = &mut tag_data[offset .. offset + parts_reflexive.count * 0x84];
 
-                                    // Write vertex offset.
-                                    LittleEndian::write_u32(&mut part[0x58 + 0xC..], asset_data_len);
+                                    for p in 0..parts_reflexive.count {
+                                        let mut part = &mut parts[p * 0x84 .. (p+1) * 0x84];
+                                        let index_count = LittleEndian::read_u32(&part[0x48 + 0x0..]) as usize;
+                                        let index_offset = LittleEndian::read_u32(&part[0x48 + 0x4..]) as usize;
 
-                                    // Write index offset.
-                                    LittleEndian::write_u32(&mut part[0x48 + 0x4..], asset_data_len + vertex_size as u32);
-                                    LittleEndian::write_u32(&mut part[0x48 + 0x8..], asset_data_len + vertex_size as u32);
+                                        let index_size = index_count * 0x2 + 4;
+                                        let index_end = index_size + index_offset as usize;
 
-                                    asset_data.extend(&vertices[vertex_offset .. vertex_end]);
-                                    asset_data.extend(&indices[index_offset .. index_end]);
+                                        let vertex_count = LittleEndian::read_u32(&part[0x58 + 0x0..]) as usize;
+                                        let vertex_offset = LittleEndian::read_u32(&part[0x58 + 0xC..]) as usize;
+                                        let vertex_size = vertex_count * 0x44;
+                                        let vertex_end = vertex_offset + vertex_size;
+
+                                        let asset_data_len = asset_data_vec.len() as u32;
+
+                                        // Write vertex offset.
+                                        LittleEndian::write_u32(&mut part[0x58 + 0xC..], asset_data_len);
+
+                                        // Write index offset.
+                                        LittleEndian::write_u32(&mut part[0x48 + 0x4..], asset_data_len + vertex_size as u32);
+                                        LittleEndian::write_u32(&mut part[0x48 + 0x8..], asset_data_len + vertex_size as u32);
+
+                                        asset_data_vec.extend_from_slice(&vertices[vertex_offset .. vertex_end]);
+                                        asset_data_vec.extend_from_slice(&indices[index_offset .. index_end]);
+                                    }
                                 }
+                                asset_data = Some(asset_data_vec);
                             }
                         }
                         asset_data
@@ -750,7 +811,7 @@ impl Map {
                             }
 
                             LittleEndian::write_u32(&mut bitmap[0x18..], (resource_file_offset + resource_data.len()) as u32);
-                            resource_data.extend(&asset_data[data_offset .. data_offset + data_size]);
+                            resource_data.extend_from_slice(&asset_data[data_offset .. data_offset + data_size]);
                         }
                     }
                 },
@@ -804,7 +865,7 @@ impl Map {
                                 }
 
                                 LittleEndian::write_u32(&mut sound[0x48..], (resource_file_offset + resource_data.len()) as u32);
-                                resource_data.extend(&asset_data[data_offset .. data_offset + data_size]);
+                                resource_data.extend_from_slice(&asset_data[data_offset .. data_offset + data_size]);
                             }
                         }
                     }
@@ -878,8 +939,8 @@ impl Map {
                             LittleEndian::write_u32(&mut part[0x48 + 0x4..], model_index_data.len() as u32);
                             LittleEndian::write_u32(&mut part[0x48 + 0x8..], model_index_data.len() as u32);
 
-                            model_vertex_data.extend(&asset_data[vertex_offset .. vertex_end]);
-                            model_index_data.extend(&asset_data[index_offset .. index_end]);
+                            model_vertex_data.extend_from_slice(&asset_data[vertex_offset .. vertex_end]);
+                            model_index_data.extend_from_slice(&asset_data[index_offset .. index_end]);
 
                             part_count += 1;
                         }
@@ -970,7 +1031,7 @@ impl Map {
             }
             let new_address = first_tag_address + tag_meta_data.len() as u32;
             tag.set_memory_address(new_address);
-            tag_meta_data.extend(tag.data.as_ref().unwrap());
+            tag_meta_data.extend_from_slice(tag.data.as_ref().unwrap());
             LittleEndian::write_u32(&mut cached_tag_array[tag_index * 0x20 + 0x14..], new_address);
         }
 
