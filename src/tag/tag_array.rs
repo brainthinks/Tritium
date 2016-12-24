@@ -221,7 +221,8 @@ impl TagArray {
     fn p_insert_recursive(&mut self, origin_tag_array : &TagArray, origin_tag_index : usize, tags_to_be_imported : &mut Vec<usize>) -> usize {
         let mut tag = (&origin_tag_array.tags()[origin_tag_index]).to_owned();
         if tags_to_be_imported.contains(&origin_tag_index) {
-            panic!("invalid cyclical reference")
+            // Cyclical tag reference.
+            return origin_tag_index;
         }
         tags_to_be_imported.push(origin_tag_index);
 
