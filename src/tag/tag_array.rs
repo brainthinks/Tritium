@@ -84,6 +84,11 @@ impl TagArray {
     /// This function will panic if the tag array exceeds 65535 objects.
     pub fn insert(&mut self, origin_tag_array : &TagArray, origin_tag_index : usize) -> Result<usize,&'static str> {
         let mut tag = (&origin_tag_array.tags()[origin_tag_index]).to_owned();
+        for i in self.tags() {
+            if i.tag_class == tag.tag_class && tag.tag_path == i.tag_path {
+                return Err("tag already exists")
+            }
+        }
 
         for i in &mut tag.references(origin_tag_array) {
             let origin_tag = &origin_tag_array.tags()[i.tag_index];
@@ -109,8 +114,14 @@ impl TagArray {
     /// The index of the new tag is returned.
     ///
     /// This function will panic if the tag array exceeds 65535 objects.
-    pub fn insert_recursive(&mut self, origin_tag_array : &TagArray, origin_tag_index : usize) -> usize {
-        self.p_insert_recursive(origin_tag_array,origin_tag_index,&mut Vec::new())
+    pub fn insert_recursive(&mut self, origin_tag_array : &TagArray, origin_tag_index : usize) -> Result<usize,&'static str> {
+        let tag = (&origin_tag_array.tags()[origin_tag_index]).to_owned();
+        for i in self.tags() {
+            if i.tag_class == tag.tag_class && tag.tag_path == i.tag_path {
+                return Err("tag already exists")
+            }
+        }
+        Ok(self.p_insert_recursive(origin_tag_array,origin_tag_index,&mut Vec::new()))
     }
 
     /// Remove a specific tag from the tag array and returns it.
