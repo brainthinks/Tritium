@@ -5,6 +5,7 @@ authors = ["Halogen002 <iambetterthanyourface@hotmail.com>"]
 
 [dependencies]
 byteorder = "*"
+encoding = "*"
 
 [profile.test]
 opt-level = 3

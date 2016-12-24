@@ -1,4 +1,8 @@
 //! Module for handling maps and cache files
+extern crate encoding;
+use self::encoding::{Encoding, DecoderTrap, EncoderTrap};
+use self::encoding::all::ISO_8859_1;
+
 extern crate byteorder;
 use self::byteorder::{ByteOrder,LittleEndian};
 use super::tag::*;
@@ -571,12 +575,12 @@ impl Map {
         LittleEndian::write_u32(&mut header[0x7FC..],0x666F6F74);
         LittleEndian::write_u32(&mut header[0x4..], self.kind.0.as_u32());
         LittleEndian::write_u32(&mut header[0x60..], self.kind.1.as_u32());
-        let name_utf8 = self.name.as_bytes();
-        if name_utf8.len() > 0x1F {
+        let name_latin1 = try!(encode_latin1_string(&self.name));
+        if name_latin1.len() > 0x1F {
             return Err("map name exceeds 31 characters");
         }
-        let build_utf8 = self.build.as_bytes();
-        if build_utf8.len() > 0x1F {
+        let build_latin1 = try!(encode_latin1_string(&self.build));
+        if build_latin1.len() > 0x1F {
             return Err("build exceeds 31 characters");
         }
         let write_bytes = |destination : &mut [u8], source : &[u8]| {
@@ -585,8 +589,8 @@ impl Map {
                 unsafe { *destination.get_unchecked_mut(i) = *source.get_unchecked(i) };
             }
         };
-        write_bytes(&mut header[0x20..], &name_utf8);
-        write_bytes(&mut header[0x40..], &build_utf8);
+        write_bytes(&mut header[0x20..], &name_latin1);
+        write_bytes(&mut header[0x40..], &build_latin1);
 
         let mut sbsp_data : Vec<u8> = Vec::new();
         let mut resource_data : Vec<u8> = Vec::new();
@@ -605,7 +609,7 @@ impl Map {
 
         // First pass: Get data and tag paths length.
         for tag in &new_tag_array {
-            tag_paths_length += tag.tag_path.as_bytes().len() + 1;
+            tag_paths_length += try!(encode_latin1_string(&tag.tag_path)).len() + 1;
             if tag.data.is_none() {
                 continue;
             }
@@ -676,7 +680,7 @@ impl Map {
 
             LittleEndian::write_u32(&mut tag_array_tag[0x10..],tag_header_address + 0x28 + (cached_tag_array_len + tag_paths.len()) as u32);
             tag_paths.extend({
-                let mut x = tag.tag_path.as_bytes().to_owned();
+                let mut x = try!(encode_latin1_string(&tag.tag_path));
                 x.push(0);
                 x
             });
@@ -999,14 +1003,22 @@ impl Map {
     }
 }
 
-// This function will create a string from a C string in a slice.
+// This function will create a string from an ISO 8859-1 string in a slice.
 fn string_from_slice(slice : &[u8]) -> Result<String,&'static str> {
     match slice.iter().position(|&x| x == 0) {
-        Some(n) => match String::from_utf8(slice[..n].to_owned()) {
+        Some(n) => match ISO_8859_1.decode(&slice[..n], DecoderTrap::Strict) {
             Ok(n) => Ok(n),
-            Err(_) => Err("invalid utf8 string")
+            Err(_) => Err("invalid latin1 string")
         },
         None => Err("string had no null-termination")
+    }
+}
+
+// This function will create a latin1 vec from a string
+fn encode_latin1_string(string : &str) -> Result<Vec<u8>,&'static str> {
+    match ISO_8859_1.encode(&string, EncoderTrap::Strict) {
+        Ok(n) => Ok(n),
+        Err(_) => Err("failed to encode string")
     }
 }
 
