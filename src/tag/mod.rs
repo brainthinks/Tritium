@@ -11,6 +11,7 @@ const SND : u32 = 0x736E6421;
 const OBJE : u32 = 0x6F626A65;
 const SBSP : u32 = 0x73627370;
 const SCNR : u32 = 0x73636E72;
+const EFFE : u32 = 0x65666665;
 
 #[derive(Clone)]
 /// Tags can vary on how they reference other tags.
@@ -49,8 +50,11 @@ pub struct Tag {
     /// Asset data is raw data used by models, internalized bitmaps, and internalized sounds.
     pub asset_data : Option<Vec<u8>>,
 
-    /// Some tags use an index to a resource located in sounds.map, bitmaps.map, or loc.map, rather
-    /// than store data in the map file.
+    /// This tag is an implicit reference.
+    pub implicit : bool,
+
+    /// Some tags use an index to a resource located in bitmaps.map or loc.map, rather than store
+    /// data in the map file.
     pub resource_index : Option<u32>,
 
     /// This is an address used by Halo.
@@ -246,6 +250,69 @@ impl Tag {
                     }
                 }
             },
+            // effe
+            EFFE => {
+                let event_count = LittleEndian::read_u32(&data[0x34..]) as usize;
+                if event_count > 0 {
+                    let event_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&data[0x34 + 4..])) {
+                        Some(n) => n,
+                        None => panic!("invalid effe tag")
+                    };
+                    let events = &data[event_offset .. event_offset + event_count * 68];
+                    for e in 0..event_count {
+                        let event = &events[e * 68 .. (e+1) * 68];
+                        let part_count = LittleEndian::read_u32(&event[0x2C..]) as usize;
+
+                        if part_count > 0 {
+                            let part_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&event[0x2C + 4..])) {
+                                Some(n) => n,
+                                None => panic!("invalid effe tag")
+                            };
+
+                            let parts = &data[part_offset .. part_offset + part_count * 104];
+                            for p in 0..part_count {
+                                let part = &parts[p * 104 .. (p+1) * 104];
+                                let identity = LittleEndian::read_u32(&part[0x18 + 0xC..]);
+                                if identity == 0xFFFFFFFF {
+                                    continue;
+                                }
+                                let id = identity as usize & 0xFFFF;
+                                assert!(id < tag_array.tags().len(), "{} < {}", id, tag_array.tags().len());
+                                references.push(TagReference {
+                                    tag_index : id,
+                                    offset : part_offset + p * 104 + 0x18,
+                                    tag_class : LittleEndian::read_u32(&part[0x18..]),
+                                    reference_type : TagReferenceType::Dependency
+                                });
+                            }
+                        }
+
+                        let particle_count = LittleEndian::read_u32(&event[0x38..]) as usize;
+                        if particle_count > 0 {
+                            let particle_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&event[0x38 + 4..])) {
+                                Some(n) => n,
+                                None => panic!("invalid effe tag")
+                            };
+                            let particles = &data[particle_offset .. particle_offset + particle_count * 232];
+                            for p in 0..particle_count {
+                                let particle = &particles[p * 232 .. (p+1) * 232];
+                                let identity = LittleEndian::read_u32(&particle[0x54 + 0xC..]);
+                                if identity == 0xFFFFFFFF {
+                                    continue;
+                                }
+                                let id = identity as usize & 0xFFFF;
+                                assert!(id < tag_array.tags().len(), "{} < {}", id, tag_array.tags().len());
+                                references.push(TagReference {
+                                    tag_index : id,
+                                    offset : particle_offset + p * 232 + 0x54,
+                                    tag_class : LittleEndian::read_u32(&particle[0x54..]),
+                                    reference_type : TagReferenceType::Dependency
+                                });
+                            }
+                        }
+                    }
+                }
+            },
             // Everything else!
             _ => {
                 let data_length = data.len();
@@ -424,6 +491,43 @@ impl Tag {
                     pointers.push(0x64);
                 }
             },
+            // effe
+            EFFE => {
+                let location_count = LittleEndian::read_u32(&tag_data[0x28..]) as usize;
+                if location_count > 0 {
+                    match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x28 + 4..])) {
+                        Some(_) => pointers.push(0x28 + 4),
+                        None => panic!("invalid effe tag")
+                    };
+                }
+                let event_count = LittleEndian::read_u32(&tag_data[0x34..]) as usize;
+                if event_count > 0 {
+                    let event_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x34 + 4..])) {
+                        Some(n) => n,
+                        None => panic!("invalid effe tag")
+                    };
+                    pointers.push(0x34 + 4);
+                    let events = &tag_data[event_offset .. event_offset + event_count * 68];
+                    for e in 0..event_count {
+                        let event = &events[e * 68 .. (e+1) * 68];
+                        let part_count = LittleEndian::read_u32(&event[0x2C..]) as usize;
+                        if part_count > 0 {
+                            match self.offset_from_memory_address(LittleEndian::read_u32(&event[0x2C + 4..])) {
+                                Some(_) => pointers.push(event_offset + e * 68 + 0x2C + 4),
+                                None => panic!("invalid effe tag {}",LittleEndian::read_u32(&event[0x2C + 4..]))
+                            };
+                        }
+
+                        let particle_count = LittleEndian::read_u32(&event[0x38..]) as usize;
+                        if particle_count > 0 {
+                            match self.offset_from_memory_address(LittleEndian::read_u32(&event[0x38 + 4..])) {
+                                Some(_) => pointers.push(event_offset + e * 68 + 0x38 + 4),
+                                None => panic!("invalid effe tag")
+                            };
+                        }
+                    }
+                }
+            }
             _ => {
                 let mut i = 0;
                 if tag_data.len() >= 12 {
