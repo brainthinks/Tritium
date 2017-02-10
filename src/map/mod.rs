@@ -285,6 +285,7 @@ impl Map {
             let data;
             let asset_data;
             let resource_index;
+            let implicit = LittleEndian::read_u32(&tag[0x18 ..]) & 1 == 1;
 
             // This is the memory address read, but it may not necessarily be a memory address. For
             // tags that exist outside of the map file, it may be the case that this is an index
@@ -294,7 +295,7 @@ impl Map {
 
             // Tags that aren't located in the map are located in the resource map files. That
             // means we don't need to do very much.
-            if LittleEndian::read_u32(&tag[0x18 ..]) & 1 == 1 {
+            if implicit && classes.0 != 560230003 {
                 data = None;
                 resource_index = Some(memory_address_read);
                 asset_data = None;
@@ -415,87 +416,92 @@ impl Map {
                     },
                     // snd! (sound)
                     0x736E6421 => {
-                        let mut asset_data = None;
-
-                        if potential_size < 0x98 + 0xC {
-                            return Err("sound tag is too small");
+                        if implicit {
+                            None
                         }
+                        else {
+                            let mut asset_data = None;
 
-                        let memory_address = *memory_address.as_ref().unwrap();
-                        let ranges_reflexive = match Reflexive::serialize(&tag_data[0x98..],memory_address,memory_address + potential_size as u32, 0x48) {
-                            Ok(n) => n,
-                            Err(_) => return Err("invalid address on sound range reflexive")
-                        };
-
-                        if ranges_reflexive.count > 0 {
-                            let offset = (ranges_reflexive.address - memory_address) as usize;
-                            let ranges = tag_data[offset .. offset + ranges_reflexive.count * 0x48].to_owned();
-                            let mut asset_data_len = 0;
-
-                            for i in 0..ranges_reflexive.count as usize {
-                                let range = &ranges[i * 0x48 .. (i+1)* 0x48];
-                                let permutations_reflexive = match Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C) {
-                                    Ok(n) => n,
-                                    Err(_) => return Err("invalid address on sound permutation reflexive")
-                                };
-
-                                if permutations_reflexive.count == 0 {
-                                    continue;
-                                }
-
-                                let offset = (permutations_reflexive.address - memory_address) as usize;
-                                let permutations = &tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
-
-                                for p in 0..permutations_reflexive.count {
-                                    let sound = &permutations[p * 0x7C .. (p+1) * 0x7C];
-
-                                    // Check if internalized...
-                                    if sound[0x44] & 1 == 0 {
-                                        let data_offset = LittleEndian::read_u32(&sound[0x48..]) as usize;
-                                        let data_size = LittleEndian::read_u32(&sound[0x40..]) as usize;
-                                        if data_offset + data_size > cache_file.len() {
-                                            return Err("sound points to invalid data")
-                                        }
-                                        asset_data_len += data_size;
-                                    }
-                                }
+                            if potential_size < 0x98 + 0xC {
+                                return Err("sound tag is too small");
                             }
 
-                            if asset_data_len != 0 {
-                                let mut asset_data_vec = Vec::new();
-                                asset_data_vec.reserve_exact(asset_data_len as usize);
+                            let memory_address = *memory_address.as_ref().unwrap();
+                            let ranges_reflexive = match Reflexive::serialize(&tag_data[0x98..],memory_address,memory_address + potential_size as u32, 0x48) {
+                                Ok(n) => n,
+                                Err(_) => return Err("invalid address on sound range reflexive")
+                            };
+
+                            if ranges_reflexive.count > 0 {
+                                let offset = (ranges_reflexive.address - memory_address) as usize;
+                                let ranges = tag_data[offset .. offset + ranges_reflexive.count * 0x48].to_owned();
+                                let mut asset_data_len = 0;
 
                                 for i in 0..ranges_reflexive.count as usize {
                                     let range = &ranges[i * 0x48 .. (i+1)* 0x48];
-                                    let permutations_reflexive = Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C).unwrap();
+                                    let permutations_reflexive = match Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C) {
+                                        Ok(n) => n,
+                                        Err(_) => return Err("invalid address on sound permutation reflexive")
+                                    };
 
                                     if permutations_reflexive.count == 0 {
                                         continue;
                                     }
 
                                     let offset = (permutations_reflexive.address - memory_address) as usize;
-                                    let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
+                                    let permutations = &tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
 
                                     for p in 0..permutations_reflexive.count {
-                                        let mut sound = &mut permutations[p * 0x7C .. (p+1) * 0x7C];
+                                        let sound = &permutations[p * 0x7C .. (p+1) * 0x7C];
 
                                         // Check if internalized...
                                         if sound[0x44] & 1 == 0 {
                                             let data_offset = LittleEndian::read_u32(&sound[0x48..]) as usize;
                                             let data_size = LittleEndian::read_u32(&sound[0x40..]) as usize;
-
-                                            let data = &cache_file[data_offset .. data_offset + data_size];
-
-                                            LittleEndian::write_u32(&mut sound[0x48..], asset_data_vec.len() as u32);
-                                            asset_data_vec.extend_from_slice(data);
+                                            if data_offset + data_size > cache_file.len() {
+                                                return Err("sound points to invalid data")
+                                            }
+                                            asset_data_len += data_size;
                                         }
                                     }
                                 }
 
-                                asset_data = Some(asset_data_vec);
+                                if asset_data_len != 0 {
+                                    let mut asset_data_vec = Vec::new();
+                                    asset_data_vec.reserve_exact(asset_data_len as usize);
+
+                                    for i in 0..ranges_reflexive.count as usize {
+                                        let range = &ranges[i * 0x48 .. (i+1)* 0x48];
+                                        let permutations_reflexive = Reflexive::serialize(&range[0x3C..],memory_address,memory_address + potential_size as u32, 0x7C).unwrap();
+
+                                        if permutations_reflexive.count == 0 {
+                                            continue;
+                                        }
+
+                                        let offset = (permutations_reflexive.address - memory_address) as usize;
+                                        let mut permutations = &mut tag_data[offset .. offset + permutations_reflexive.count * 0x7C];
+
+                                        for p in 0..permutations_reflexive.count {
+                                            let mut sound = &mut permutations[p * 0x7C .. (p+1) * 0x7C];
+
+                                            // Check if internalized...
+                                            if sound[0x44] & 1 == 0 {
+                                                let data_offset = LittleEndian::read_u32(&sound[0x48..]) as usize;
+                                                let data_size = LittleEndian::read_u32(&sound[0x40..]) as usize;
+
+                                                let data = &cache_file[data_offset .. data_offset + data_size];
+
+                                                LittleEndian::write_u32(&mut sound[0x48..], asset_data_vec.len() as u32);
+                                                asset_data_vec.extend_from_slice(data);
+                                            }
+                                        }
+                                    }
+
+                                    asset_data = Some(asset_data_vec);
+                                }
                             }
+                            asset_data
                         }
-                        asset_data
                     },
                     // mod2 (PC models)
                     0x6D6F6432 => {
@@ -607,13 +613,13 @@ impl Map {
                 data = Some(tag_data);
             }
 
-
             // Success!
             tags.push(Tag::new(
                 tag_name,
                 classes,
                 data,
                 asset_data,
+                implicit,
                 resource_index,
                 memory_address,
             ));
@@ -752,9 +758,11 @@ impl Map {
                         return Err("tag has both data and a reference index")
                     }
                     LittleEndian::write_u32(&mut tag_array_tag[0x14..],*n);
-                    LittleEndian::write_u32(&mut tag_array_tag[0x18..],1);
                 },
                 None => ()
+            }
+            if tag.implicit {
+                LittleEndian::write_u32(&mut tag_array_tag[0x18..],1);
             }
 
             LittleEndian::write_u32(&mut tag_array_tag[0x0..],tag.tag_class.0);
@@ -1075,7 +1083,7 @@ fn string_from_slice(slice : &[u8]) -> Result<String,&'static str> {
     }
 }
 
-// This function will create a latin1 vec from a string
+// This function will create an ISO 8859-1 vec from a string
 fn encode_latin1_string(string : &str) -> Result<Vec<u8>,&'static str> {
     match ISO_8859_1.encode(&string, EncoderTrap::Strict) {
         Ok(n) => Ok(n),

@@ -58,12 +58,13 @@ pub struct Tag {
 }
 impl Tag {
     /// Create a new Tag. This consumes all of the data used.
-    pub fn new(path : String, classes : (u32,u32,u32), data : Option<Vec<u8>>, asset_data : Option<Vec<u8>>, resource_index : Option<u32>, memory_address : Option<u32>) -> Tag {
+    pub fn new(path : String, classes : (u32,u32,u32), data : Option<Vec<u8>>, asset_data : Option<Vec<u8>>, implicit: bool, resource_index : Option<u32>, memory_address : Option<u32>) -> Tag {
         Tag {
             tag_path : path,
             tag_class : classes,
             data : data,
             asset_data : asset_data,
+            implicit : implicit,
             resource_index : resource_index,
             memory_address : memory_address
         }
