@@ -1,6 +1,8 @@
 //! This crate provides a library for Halo: Combat Evolved cache file parsing and manipulation.
 pub mod tag;
 pub mod map;
+pub mod resource_map;
+
 extern crate encoding;
 use self::encoding::{Encoding, DecoderTrap, EncoderTrap};
 use self::encoding::all::ISO_8859_1;
