@@ -1,12 +1,9 @@
 //! Module for handling maps and cache files
-extern crate encoding;
-use self::encoding::{Encoding, DecoderTrap, EncoderTrap};
-use self::encoding::all::ISO_8859_1;
-
 extern crate byteorder;
 use self::byteorder::{ByteOrder,LittleEndian};
 use super::tag::*;
 
+use super::{encode_latin1_string, string_from_slice, pad_32};
 
 #[derive(PartialEq,Clone)]
 /// The game can vary from map to map, using a different version number for each game. Maps from
@@ -1072,25 +1069,6 @@ impl Map {
     }
 }
 
-// This function will create a string from an ISO 8859-1 string in a slice.
-fn string_from_slice(slice : &[u8]) -> Result<String,&'static str> {
-    match slice.iter().position(|&x| x == 0) {
-        Some(n) => match ISO_8859_1.decode(&slice[..n], DecoderTrap::Strict) {
-            Ok(n) => Ok(n),
-            Err(_) => Err("invalid latin1 string")
-        },
-        None => Err("string had no null-termination")
-    }
-}
-
-// This function will create an ISO 8859-1 vec from a string
-fn encode_latin1_string(string : &str) -> Result<Vec<u8>,&'static str> {
-    match ISO_8859_1.encode(&string, EncoderTrap::Strict) {
-        Ok(n) => Ok(n),
-        Err(_) => Err("failed to encode string")
-    }
-}
-
 // Convenience for reading a tag reflexive.
 struct Reflexive {
     pub count : usize,
@@ -1119,9 +1097,4 @@ impl Reflexive {
             }
         }
     }
-}
-
-/// Add padding for 32-bit word alignment.
-pub fn pad_32(length : usize) -> usize {
-    length + (4 - (length % 4)) % 4
 }
