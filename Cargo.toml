@@ -1,6 +1,6 @@
 [package]
 name = "tritium"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Halogen002 <iambetterthanyourface@hotmail.com>"]
 
 [dependencies]
