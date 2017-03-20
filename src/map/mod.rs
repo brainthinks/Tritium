@@ -216,52 +216,57 @@ impl Map {
 
         // Go through the SBSPs in the scenario tag. We only need to do this once. The value is:
         // Vec<(Tag ID, Memory Address, File Offset, Data Size)>
-        let sbsps : Vec<(usize,u32,usize,usize)> = if scenario_tag.is_some() {
-            let mut sbsps = Vec::new();
+        let sbsps : Vec<(usize,u32,usize,usize)> = {
+            let mut sbsps : Vec<(usize,u32,usize,usize)> = Vec::new();
 
-            let scenario_tag_index = scenario_tag.as_ref().unwrap();
-            let principal_scenario_tag = &tag_array[scenario_tag_index * 0x20 .. (scenario_tag_index + 1) * 0x20];
-            let principal_scenario_tag_data = match address_to_offset(LittleEndian::read_u32(&principal_scenario_tag[0x14..])) {
-                Some(n) => if n + 0x5B0 > meta_data.len() {
-                        return Err("scenario tag invalid")
-                    }
-                    else {
-                        &meta_data[n..n+0x5B0]
-                    },
-                None => return Err("scenario tag invalid")
-            };
+            for i in 0..tag_count {
+                let tag = &tag_array[i * 0x20 .. (i+1) * 0x20];
+                if LittleEndian::read_u32(tag) != 0x73636E72 {
+                    continue;
+                }
+                let scenario_tag_data = match address_to_offset(LittleEndian::read_u32(&tag[0x14..])) {
+                    Some(n) => if n + 0x5B0 > meta_data.len() {
+                            return Err("scenario tag invalid")
+                        }
+                        else {
+                            &meta_data[n..n+0x5B0]
+                        },
+                    None => return Err("scenario tag invalid")
+                };
 
-            let sbsp_reflexive = match Reflexive::serialize(&principal_scenario_tag_data[0x5A4..],base_address,base_address + meta_data.len() as u32,32) {
-                Ok(n) => n,
-                Err(_) => return Err("scenario tag sbsp pointer is invalid")
-            };
-            let sbsp_count = sbsp_reflexive.count;
-            if sbsp_count > 0 {
-                let sbsp_offset = address_to_offset(sbsp_reflexive.address).unwrap();
-                let sbsp_size = sbsp_count * 32;
-                let sbsp_data = &meta_data[sbsp_offset .. sbsp_offset + sbsp_size];
-                for i in 0..sbsp_count {
-                    let sbsp = &sbsp_data[i*32 .. (i+1)*32];
-                    let tag_index = LittleEndian::read_u32(&sbsp[0x1C..]) as usize & 0xFFFF;
-                    let tag_memory_address = LittleEndian::read_u32(&sbsp[0x8..]);
-                    let tag_file_offset = LittleEndian::read_u32(&sbsp[0x0..]) as usize;
-                    let tag_size = LittleEndian::read_u32(&sbsp[0x4..]) as usize;
-                    if tag_file_offset + tag_size > file_size {
-                        return Err("invalid sbsp tag")
+                let sbsp_reflexive = match Reflexive::serialize(&scenario_tag_data[0x5A4..],base_address,base_address + meta_data.len() as u32,32) {
+                    Ok(n) => n,
+                    Err(_) => return Err("scenario tag sbsp pointer is invalid")
+                };
+                let sbsp_count = sbsp_reflexive.count;
+                if sbsp_count > 0 {
+                    let sbsp_offset = address_to_offset(sbsp_reflexive.address).unwrap();
+                    let sbsp_size = sbsp_count * 32;
+                    let sbsp_data = &meta_data[sbsp_offset .. sbsp_offset + sbsp_size];
+                    'sbsp_iter : for i in 0..sbsp_count {
+                        let sbsp = &sbsp_data[i*32 .. (i+1)*32];
+                        let tag_index = LittleEndian::read_u32(&sbsp[0x1C..]) as usize & 0xFFFF;
+                        let tag_memory_address = LittleEndian::read_u32(&sbsp[0x8..]);
+                        let tag_file_offset = LittleEndian::read_u32(&sbsp[0x0..]) as usize;
+                        let tag_size = LittleEndian::read_u32(&sbsp[0x4..]) as usize;
+                        if tag_file_offset + tag_size > file_size {
+                            return Err("invalid sbsp tag")
+                        }
+                        for i in &sbsps {
+                            if i.0 == tag_index {
+                                continue 'sbsp_iter
+                            }
+                        }
+                        sbsps.push((
+                            tag_index,
+                            tag_memory_address,
+                            tag_file_offset,
+                            tag_size
+                        ));
                     }
-                    sbsps.push((
-                        tag_index,
-                        tag_memory_address,
-                        tag_file_offset,
-                        tag_size
-                    ));
                 }
             }
             sbsps
-        }
-        // If there is no scenario tag, then expect no SBSPs.
-        else {
-            Vec::new()
         };
 
         // Go through all of the tags.
@@ -668,6 +673,7 @@ impl Map {
         let mut resource_length = 0;
 
         let mut new_tag_array = self.tag_array.tags().to_owned();
+        let tag_count = new_tag_array.len();
 
         let mut tag_paths_length = 0;
 
@@ -712,12 +718,10 @@ impl Map {
         sbsps.reserve_exact(sbsp_count);
 
         match self.tag_array.principal_tag() {
-            Some(n) => if n > new_tag_array.len() {
+            Some(n) => if n > tag_count {
                 return Err("invalid principal scenario tag")
             },
-            None => if sbsp_count != 0 {
-                return Err("orphaned sbsp tags");
-            }
+            None => ()
         }
 
         let sbsp_file_offset = header.len();
@@ -726,7 +730,7 @@ impl Map {
         let mut part_count = 0;
 
         let mut cached_tag_array = Vec::new();
-        cached_tag_array.resize(0x20 * new_tag_array.len(),0);
+        cached_tag_array.resize(0x20 * tag_count,0);
         let cached_tag_array_len = cached_tag_array.len();
 
         let mut tag_paths : Vec<u8> = Vec::new();
@@ -738,7 +742,7 @@ impl Map {
         let mut total_tag_data = 0;
 
         // Second pass: Write data and work on the tag array.
-        for tag_index in 0..new_tag_array.len() {
+        for tag_index in 0..tag_count {
             let mut tag = unsafe { new_tag_array.get_unchecked_mut(tag_index) };
             let mut tag_array_tag = &mut cached_tag_array[tag_index * 0x20 .. (tag_index + 1) * 0x20];
 
@@ -1001,7 +1005,7 @@ impl Map {
             LittleEndian::write_u32(&mut tag_header[0x8..], 0x00010000);
 
             // Tag count
-            LittleEndian::write_u32(&mut tag_header[0xC..], new_tag_array.len() as u32);
+            LittleEndian::write_u32(&mut tag_header[0xC..], tag_count as u32);
 
             // Part count
             LittleEndian::write_u32(&mut tag_header[0x10..], part_count as u32);
@@ -1029,11 +1033,36 @@ impl Map {
         tag_meta_data.reserve_exact(total_tag_data);
 
         // Third pass: Build tag data
-        for tag_index in 0..new_tag_array.len() {
+        for tag_index in 0..tag_count {
             let tag = unsafe { new_tag_array.get_unchecked_mut(tag_index) };
             if tag.data.is_none() {
                 continue;
             }
+
+            // Also write BSP information to SCNR tags.
+            if tag.tag_class.0 == 0x73636E72 {
+                let mut tag_data = tag.data.as_mut().unwrap();
+                let bsp_count = LittleEndian::read_u32(&tag_data[0x5A4..]) as usize;
+                if bsp_count > 0 {
+                    let offset = (LittleEndian::read_u32(&tag_data[0x5A4 + 4..]) - tag.memory_address.as_ref().unwrap()) as usize;
+                    let mut sbsp_data = &mut tag_data[offset .. offset + bsp_count * 32];
+                    for bsp in 0..bsp_count {
+                        let mut sbsp = &mut sbsp_data[bsp*32 .. (bsp+1)*32];
+                        let tag_index = LittleEndian::read_u32(&sbsp[0x1C..]) as usize & 0xFFFF;
+                        let mut found = false;
+                        for b in &sbsps {
+                            if b.0 == tag_index {
+                                LittleEndian::write_u32(&mut sbsp[0x0..], b.1 as u32 + 0x800);
+                                found = true;
+                            }
+                        }
+                        if !found {
+                            return Err("scenario tag sbsp dependency is broken")
+                        }
+                    }
+                }
+            }
+
             let new_address = first_tag_address + tag_meta_data.len() as u32;
             tag.set_memory_address(new_address);
             tag_meta_data.extend_from_slice(tag.data.as_ref().unwrap());
