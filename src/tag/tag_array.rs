@@ -209,7 +209,6 @@ impl TagArray {
             if keep_list[i] {
                 continue;
             }
-            println!("Removing tag {} - {}.{}",i,self.tags[i].tag_path,self.tags[i].tag_class.0);
             self.remove(i);
         }
     }
