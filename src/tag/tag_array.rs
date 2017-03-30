@@ -90,14 +90,21 @@ impl TagArray {
             }
         }
 
+        let mut self_references = Vec::new();
+
         for i in &mut tag.references(origin_tag_array) {
-            let origin_tag = &origin_tag_array.tags()[i.tag_index];
-            match self.find_tag(&origin_tag.tag_path, origin_tag.tag_class.0) {
-                Some(n) => {
-                    i.tag_index = n;
-                    tag.set_reference(&i);
-                },
-                None => return Err("tag array is missing a tag")
+            if i.tag_index == origin_tag_index {
+                self_references.push(i.to_owned());
+            }
+            else {
+                let origin_tag = &origin_tag_array.tags()[i.tag_index];
+                match self.find_tag(&origin_tag.tag_path, origin_tag.tag_class.0) {
+                    Some(n) => {
+                        i.tag_index = n;
+                        tag.set_reference(&i);
+                    },
+                    None => return Err("tag array is missing a tag")
+                }
             }
         }
 
@@ -105,6 +112,11 @@ impl TagArray {
         if new_index > 65535 {
             panic!("tag array exceeds 65535 objects")
         }
+        for mut i in self_references {
+            i.tag_index = new_index;
+            tag.set_reference(&i);
+        }
+        
         self.tags.push(tag);
         Ok(new_index)
     }
