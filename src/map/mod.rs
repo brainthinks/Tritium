@@ -713,8 +713,8 @@ impl Map {
         sbsp_data.reserve_exact(padded_sbsp_length);
         resource_data.reserve_exact(padded_resource_data_length);
 
-        // Tag ID, File offset
-        let mut sbsps : Vec<(usize, usize)> = Vec::new();
+        // Tag ID, File offset, Memory Address, Tag Size
+        let mut sbsps : Vec<(usize, usize, u32, usize)> = Vec::new();
         sbsps.reserve_exact(sbsp_count);
 
         match self.tag_array.principal_tag() {
@@ -957,7 +957,13 @@ impl Map {
                 },
                 // Get sbsp tags...
                 0x73627370 => {
-                    sbsps.push((tag_index, sbsp_data.len()));
+                    sbsps.push((tag_index, sbsp_data.len(), match tag.memory_address {
+                        Some(n) => n,
+                        None => return Err("sbsp without memory address")
+                    }, match tag.data.as_ref() {
+                        Some(n) => n.len(),
+                        None => return Err("sbsp without data")
+                    }));
                     sbsp_data.append(&mut tag.data.as_mut().unwrap());
                     tag.data = None;
                 },
@@ -1053,6 +1059,8 @@ impl Map {
                         for b in &sbsps {
                             if b.0 == tag_index {
                                 LittleEndian::write_u32(&mut sbsp[0x0..], b.1 as u32 + 0x800);
+                                LittleEndian::write_u32(&mut sbsp[0x4..], b.3 as u32);
+                                LittleEndian::write_u32(&mut sbsp[0x8..], b.2 as u32);
                                 found = true;
                             }
                         }
