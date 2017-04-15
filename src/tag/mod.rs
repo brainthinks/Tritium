@@ -525,7 +525,6 @@ impl Tag {
                     pointers.push(0x64);
                 }
             },
-            // effe
             EFFE => {
                 let location_count = LittleEndian::read_u32(&tag_data[0x28..]) as usize;
                 if location_count > 0 {
@@ -563,7 +562,6 @@ impl Tag {
                 }
             },
             JPT => (),
-            // scnr
             SCNR => {
                 let mut maybe_add_pointer = |offset : usize| {
                     let x = LittleEndian::read_u32(&tag_data[offset ..]);
