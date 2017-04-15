@@ -12,6 +12,9 @@ const OBJE : u32 = 0x6F626A65;
 const SBSP : u32 = 0x73627370;
 const SCNR : u32 = 0x73636E72;
 const EFFE : u32 = 0x65666665;
+const ANTR : u32 = 0x616E7472;
+
+const JPT : u32 = 0x6A707421;
 
 #[derive(Clone)]
 /// Tags can vary on how they reference other tags.
@@ -174,7 +177,29 @@ impl Tag {
         };
 
         match self.tag_class.0 {
-            // bitm
+            ANTR => {
+                let sounds_count = LittleEndian::read_u32(&data[0x54..]) as usize;
+                if sounds_count > 0 {
+                    let sounds_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&data[0x54 + 4..])) {
+                        Some(n) => n,
+                        None => panic!("invalid animation tag")
+                    };
+                    let sounds = &data[sounds_offset .. sounds_count * 20 + sounds_offset];
+                    for i in 0..sounds_count {
+                        let sound = &sounds[i*20 .. (i+1)*20];
+                        let identity = LittleEndian::read_u32(&sound[0x0 + 0xC..]);
+                        if identity == 0xFFFFFFFF {
+                            continue;
+                        }
+                        references.push(TagReference {
+                            tag_index : identity as usize & 0xFFFF,
+                            offset : sounds_offset + i * 20,
+                            tag_class : LittleEndian::read_u32(&sound[0x0..]),
+                            reference_type : TagReferenceType::Dependency
+                        })
+                    }
+                }
+            },
             BITM => {
                 let bitmaps_count = LittleEndian::read_u32(&data[0x60..]) as usize;
                 let bitmaps_address = LittleEndian::read_u32(&data[0x64..]);
@@ -204,53 +229,6 @@ impl Tag {
                     })
                 }
             },
-            // snd!
-            SND => {
-                let promo_sound_id = LittleEndian::read_u32(&data[0x70 + 0xC..]) as usize;
-                if promo_sound_id != 0xFFFFFFFF {
-                    assert!(promo_sound_id & 0xFFFF < tag_array.tags().len());
-                    references.push(TagReference {
-                        tag_index : promo_sound_id & 0xFFFF,
-                        offset : 0x70,
-                        tag_class : SND,
-                        reference_type : TagReferenceType::Dependency
-                    });
-                }
-                let count = LittleEndian::read_u32(&data[0x98..]) as usize;
-                let offset = match self.offset_from_memory_address(LittleEndian::read_u32(&data[0x98 + 4..])) {
-                    Some(n) => n,
-                    None => panic!("invalid snd! tag")
-                };
-                let ranges = &data[offset .. offset + count * 0x48].to_owned();
-                for i in 0..count {
-                    let range = &ranges[i * 0x48 .. (i+1)* 0x48];
-                    let permutations_count = LittleEndian::read_u32(&range[0x3C..]) as usize;
-                    let permutations_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&range[0x3C+4..])) {
-                        Some(n) => n,
-                        None => panic!("invalid snd! range")
-                    };
-                    let permutations = &data[permutations_offset .. permutations_offset + permutations_count * 124];
-                    for p in 0..permutations_count {
-                        let permutation = &permutations[p * 124 .. (p+1) * 124];
-                        for k in 0..2 {
-                            let identity = LittleEndian::read_u32(&permutation[0x34 + k * 8..]);
-                            if identity == 0xFFFFFFFF {
-                                continue;
-                            }
-                            let id = identity as usize & 0xFFFF;
-                            assert!(id < tag_array.tags().len(), "{} < {}", id, tag_array.tags().len());
-                            references.push(TagReference {
-                                tag_index : id,
-                                offset : p * 124 + k * 8 + 0x34 + permutations_offset,
-                                tag_class : SND,
-                                reference_type : TagReferenceType::TagID
-                            });
-                        }
-
-                    }
-                }
-            },
-            // effe
             EFFE => {
                 let event_count = LittleEndian::read_u32(&data[0x34..]) as usize;
                 if event_count > 0 {
@@ -310,6 +288,62 @@ impl Tag {
                                 });
                             }
                         }
+                    }
+                }
+            },
+            JPT => {
+                let identity = LittleEndian::read_u32(&data[0x114 + 0xC..]);
+                if identity != 0xFFFFFFFF {
+                    references.push(TagReference {
+                        tag_index : identity as usize & 0xFFFF,
+                        offset : 0x114,
+                        tag_class : LittleEndian::read_u32(&data[0x114..]),
+                        reference_type : TagReferenceType::Dependency
+                    });
+                }
+            },
+            SND => {
+                let promo_sound_id = LittleEndian::read_u32(&data[0x70 + 0xC..]) as usize;
+                if promo_sound_id != 0xFFFFFFFF {
+                    assert!(promo_sound_id & 0xFFFF < tag_array.tags().len());
+                    references.push(TagReference {
+                        tag_index : promo_sound_id & 0xFFFF,
+                        offset : 0x70,
+                        tag_class : SND,
+                        reference_type : TagReferenceType::Dependency
+                    });
+                }
+                let count = LittleEndian::read_u32(&data[0x98..]) as usize;
+                let offset = match self.offset_from_memory_address(LittleEndian::read_u32(&data[0x98 + 4..])) {
+                    Some(n) => n,
+                    None => panic!("invalid snd! tag")
+                };
+                let ranges = &data[offset .. offset + count * 0x48].to_owned();
+                for i in 0..count {
+                    let range = &ranges[i * 0x48 .. (i+1)* 0x48];
+                    let permutations_count = LittleEndian::read_u32(&range[0x3C..]) as usize;
+                    let permutations_offset = match self.offset_from_memory_address(LittleEndian::read_u32(&range[0x3C+4..])) {
+                        Some(n) => n,
+                        None => panic!("invalid snd! range")
+                    };
+                    let permutations = &data[permutations_offset .. permutations_offset + permutations_count * 124];
+                    for p in 0..permutations_count {
+                        let permutation = &permutations[p * 124 .. (p+1) * 124];
+                        for k in 0..2 {
+                            let identity = LittleEndian::read_u32(&permutation[0x34 + k * 8..]);
+                            if identity == 0xFFFFFFFF {
+                                continue;
+                            }
+                            let id = identity as usize & 0xFFFF;
+                            assert!(id < tag_array.tags().len(), "{} < {}", id, tag_array.tags().len());
+                            references.push(TagReference {
+                                tag_index : id,
+                                offset : p * 124 + k * 8 + 0x34 + permutations_offset,
+                                tag_class : SND,
+                                reference_type : TagReferenceType::TagID
+                            });
+                        }
+
                     }
                 }
             },
@@ -528,6 +562,7 @@ impl Tag {
                     }
                 }
             },
+            JPT => (),
             // scnr
             SCNR => {
                 let mut maybe_add_pointer = |offset : usize| {
