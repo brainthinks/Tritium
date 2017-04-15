@@ -6,15 +6,15 @@ use self::byteorder::{ByteOrder,LittleEndian};
 mod tag_array;
 pub use self::tag_array::*;
 
+const ANTR : u32 = 0x616E7472;
 const BITM : u32 = 0x6269746D;
-const SND : u32 = 0x736E6421;
+const EFFE : u32 = 0x65666665;
+const JPT : u32 = 0x6A707421;
 const OBJE : u32 = 0x6F626A65;
 const SBSP : u32 = 0x73627370;
 const SCNR : u32 = 0x73636E72;
-const EFFE : u32 = 0x65666665;
-const ANTR : u32 = 0x616E7472;
-
-const JPT : u32 = 0x6A707421;
+const SND : u32 = 0x736E6421;
+const USTR : u32 = 0x75737472;
 
 #[derive(Clone)]
 /// Tags can vary on how they reference other tags.
@@ -347,6 +347,7 @@ impl Tag {
                     }
                 }
             },
+            USTR => (),
             // Everything else!
             _ => {
                 let data_length = data.len();
@@ -503,6 +504,17 @@ impl Tag {
         let memory_address_end = memory_address + tag_data.len() as u32;
         let mut pointers = Vec::new();
 
+        macro_rules! maybe_add_pointer {
+            ($offset:expr) => {
+                {
+                    let x = LittleEndian::read_u32(&tag_data[$offset ..]);
+                    if x != 0 {
+                        pointers.push($offset);
+                    }
+                }
+            }
+        };
+
         match self.tag_class.0 {
             BITM => {
                 let sequences_count = LittleEndian::read_u32(&tag_data[0x54..]) as usize;
@@ -563,68 +575,62 @@ impl Tag {
             },
             JPT => (),
             SCNR => {
-                let mut maybe_add_pointer = |offset : usize| {
-                    let x = LittleEndian::read_u32(&tag_data[offset ..]);
-                    if x != 0 {
-                        pointers.push(offset);
-                    }
-                };
-                maybe_add_pointer(0x30 + 4);
-                maybe_add_pointer(0x40 + 4);
-                maybe_add_pointer(0xEC + 4);
-                maybe_add_pointer(0xF8 + 4);
-                maybe_add_pointer(0x110);
+                maybe_add_pointer!(0x30 + 4);
+                maybe_add_pointer!(0x40 + 4);
+                maybe_add_pointer!(0xEC + 4);
+                maybe_add_pointer!(0xF8 + 4);
+                maybe_add_pointer!(0x110);
                 match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x118 + 4..])) {
                     Some(n) => {
                         let comments_count = LittleEndian::read_u32(&tag_data[0x118..]) as usize;
                         for i in 0..comments_count {
-                            maybe_add_pointer(n + i * 48 + 0x24 + 4);
+                            maybe_add_pointer!(n + i * 48 + 0x24 + 4);
                         }
-                        maybe_add_pointer(0x118 + 4);
+                        maybe_add_pointer!(0x118 + 4);
                     },
                     None => ()
                 };
-                maybe_add_pointer(0x204 + 4);
-                maybe_add_pointer(0x210 + 4);
-                maybe_add_pointer(0x21C + 4);
-                maybe_add_pointer(0x228 + 4);
-                maybe_add_pointer(0x234 + 4);
-                maybe_add_pointer(0x240 + 4);
-                maybe_add_pointer(0x24C + 4);
-                maybe_add_pointer(0x258 + 4);
-                maybe_add_pointer(0x264 + 4);
-                maybe_add_pointer(0x270 + 4);
-                maybe_add_pointer(0x27C + 4);
-                maybe_add_pointer(0x288 + 4);
-                maybe_add_pointer(0x294 + 4);
-                maybe_add_pointer(0x2A0 + 4);
-                maybe_add_pointer(0x2AC + 4);
-                maybe_add_pointer(0x2B8 + 4);
-                maybe_add_pointer(0x2C4 + 4);
-                maybe_add_pointer(0x2D0 + 4);
-                maybe_add_pointer(0x2DC + 4);
-                maybe_add_pointer(0x2E8 + 4);
-                maybe_add_pointer(0x348 + 4);
-                maybe_add_pointer(0x354 + 4);
-                maybe_add_pointer(0x360 + 4);
+                maybe_add_pointer!(0x204 + 4);
+                maybe_add_pointer!(0x210 + 4);
+                maybe_add_pointer!(0x21C + 4);
+                maybe_add_pointer!(0x228 + 4);
+                maybe_add_pointer!(0x234 + 4);
+                maybe_add_pointer!(0x240 + 4);
+                maybe_add_pointer!(0x24C + 4);
+                maybe_add_pointer!(0x258 + 4);
+                maybe_add_pointer!(0x264 + 4);
+                maybe_add_pointer!(0x270 + 4);
+                maybe_add_pointer!(0x27C + 4);
+                maybe_add_pointer!(0x288 + 4);
+                maybe_add_pointer!(0x294 + 4);
+                maybe_add_pointer!(0x2A0 + 4);
+                maybe_add_pointer!(0x2AC + 4);
+                maybe_add_pointer!(0x2B8 + 4);
+                maybe_add_pointer!(0x2C4 + 4);
+                maybe_add_pointer!(0x2D0 + 4);
+                maybe_add_pointer!(0x2DC + 4);
+                maybe_add_pointer!(0x2E8 + 4);
+                maybe_add_pointer!(0x348 + 4);
+                maybe_add_pointer!(0x354 + 4);
+                maybe_add_pointer!(0x360 + 4);
                 match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x36C + 4..])) {
                     Some(n) => {
                         let recorded_animations_count = LittleEndian::read_u32(&tag_data[0x36C..]) as usize;
                         for i in 0..recorded_animations_count {
-                            maybe_add_pointer(n + i * 64 + 0x38);
+                            maybe_add_pointer!(n + i * 64 + 0x38);
                         }
-                        maybe_add_pointer(0x36C + 4);
+                        maybe_add_pointer!(0x36C + 4);
                     },
                     None => ()
                 };
-                maybe_add_pointer(0x378 + 4);
-                maybe_add_pointer(0x384 + 4);
-                maybe_add_pointer(0x390 + 4);
-                maybe_add_pointer(0x39C + 4);
-                maybe_add_pointer(0x3A8 + 4);
-                maybe_add_pointer(0x3B4 + 4);
-                maybe_add_pointer(0x3C0 + 4);
-                maybe_add_pointer(0x420 + 4);
+                maybe_add_pointer!(0x378 + 4);
+                maybe_add_pointer!(0x384 + 4);
+                maybe_add_pointer!(0x390 + 4);
+                maybe_add_pointer!(0x39C + 4);
+                maybe_add_pointer!(0x3A8 + 4);
+                maybe_add_pointer!(0x3B4 + 4);
+                maybe_add_pointer!(0x3C0 + 4);
+                maybe_add_pointer!(0x420 + 4);
                 match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x42C + 4..])) {
                     Some(n) => {
                         let encounters_count = LittleEndian::read_u32(&tag_data[0x42C..]) as usize;
@@ -635,18 +641,18 @@ impl Tag {
                                 Some(m) => {
                                     let squad_count = LittleEndian::read_u32(&block[0x80..]) as usize;
                                     for i in 0..squad_count {
-                                        maybe_add_pointer(m + i * 232 + 0xC4 + 4);
-                                        maybe_add_pointer(m + i * 232 + 0xD0 + 4);
+                                        maybe_add_pointer!(m + i * 232 + 0xC4 + 4);
+                                        maybe_add_pointer!(m + i * 232 + 0xD0 + 4);
                                     }
-                                    maybe_add_pointer(n + i * 176 + 0x80 + 4);
+                                    maybe_add_pointer!(n + i * 176 + 0x80 + 4);
                                 },
                                 None => ()
                             }
-                            maybe_add_pointer(n + i * 176 + 0x8C + 4);
-                            maybe_add_pointer(n + i * 176 + 0x98 + 4);
-                            maybe_add_pointer(n + i * 176 + 0xA4 + 4);
+                            maybe_add_pointer!(n + i * 176 + 0x8C + 4);
+                            maybe_add_pointer!(n + i * 176 + 0x98 + 4);
+                            maybe_add_pointer!(n + i * 176 + 0xA4 + 4);
                         }
-                        maybe_add_pointer(0x42C + 4);
+                        maybe_add_pointer!(0x42C + 4);
                     },
                     None => ()
                 };
@@ -654,36 +660,48 @@ impl Tag {
                     Some(n) => {
                         let commands_count = LittleEndian::read_u32(&tag_data[0x438..]) as usize;
                         for i in 0..commands_count {
-                            maybe_add_pointer(n + i * 96 + 0x30 + 4);
-                            maybe_add_pointer(n + i * 96 + 0x3C + 4);
+                            maybe_add_pointer!(n + i * 96 + 0x30 + 4);
+                            maybe_add_pointer!(n + i * 96 + 0x3C + 4);
                         }
-                        maybe_add_pointer(0x438 + 4);
+                        maybe_add_pointer!(0x438 + 4);
                     },
                     None => ()
                 };
-                maybe_add_pointer(0x444 + 4);
-                maybe_add_pointer(0x450 + 4);
-                maybe_add_pointer(0x45C + 4);
+                maybe_add_pointer!(0x444 + 4);
+                maybe_add_pointer!(0x450 + 4);
+                maybe_add_pointer!(0x45C + 4);
                 match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x468 + 4..])) {
                     Some(n) => {
                         let conversations_count = LittleEndian::read_u32(&tag_data[0x468..]) as usize;
                         for i in 0..conversations_count {
-                            maybe_add_pointer(n + i * 116 + 0x50 + 4);
-                            maybe_add_pointer(n + i * 116 + 0x5C + 4);
+                            maybe_add_pointer!(n + i * 116 + 0x50 + 4);
+                            maybe_add_pointer!(n + i * 116 + 0x5C + 4);
                         }
-                        maybe_add_pointer(0x468 + 4);
+                        maybe_add_pointer!(0x468 + 4);
                     },
                     None => ()
                 };
-                maybe_add_pointer(0x480);
-                maybe_add_pointer(0x494);
-                maybe_add_pointer(0x49C + 4);
-                maybe_add_pointer(0x4A8 + 4);
-                maybe_add_pointer(0x4B4 + 4);
-                maybe_add_pointer(0x4E4 + 4);
-                maybe_add_pointer(0x4F0 + 4);
-                maybe_add_pointer(0x4FC + 4);
-                maybe_add_pointer(0x5A4 + 4);
+                maybe_add_pointer!(0x480);
+                maybe_add_pointer!(0x494);
+                maybe_add_pointer!(0x49C + 4);
+                maybe_add_pointer!(0x4A8 + 4);
+                maybe_add_pointer!(0x4B4 + 4);
+                maybe_add_pointer!(0x4E4 + 4);
+                maybe_add_pointer!(0x4F0 + 4);
+                maybe_add_pointer!(0x4FC + 4);
+                maybe_add_pointer!(0x5A4 + 4);
+            },
+            USTR => {
+                match self.offset_from_memory_address(LittleEndian::read_u32(&tag_data[0x4..])) {
+                    Some(n) => {
+                        let string_count = LittleEndian::read_u32(&tag_data[0x0..]) as usize;
+                        for i in 0..string_count {
+                            maybe_add_pointer!(n + i * 0x14 + 0x8 + 0x4);
+                        }
+                        maybe_add_pointer!(0x4);
+                    },
+                    None => ()
+                }
             },
             _ => {
                 let mut i = 0;
