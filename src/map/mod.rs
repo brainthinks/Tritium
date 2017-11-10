@@ -398,7 +398,6 @@ impl Map {
 
                             if asset_data_len != 0 {
                                 let mut asset_data_vec = Vec::new();
-                                asset_data_vec.reserve_exact(asset_data_len as usize);
 
                                 for i in 0..bitmaps_reflexive.count {
                                     let mut bitmap = &mut bitmaps[i * 0x30 .. (i+1)*0x30];
@@ -413,7 +412,6 @@ impl Map {
                                 asset_data = Some(asset_data_vec);
                             }
                         }
-
                         asset_data
                     },
                     // snd! (sound)
