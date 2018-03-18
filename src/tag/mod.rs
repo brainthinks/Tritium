@@ -383,7 +383,7 @@ impl Tag {
     ///
     /// This function may panic if the offset is invalid or if the tag does not have any data.
     pub fn set_reference(&mut self, reference : &TagReference) {
-        let mut tag_data = self.data.as_mut().unwrap();
+        let tag_data = self.data.as_mut().unwrap();
         match reference.reference_type {
             TagReferenceType::TagID => {
                 LittleEndian::write_u32(&mut tag_data[reference.offset..], tag_index_to_tag_id(reference.tag_index));
@@ -412,7 +412,7 @@ impl Tag {
     pub fn insert_data(&mut self, offset : usize, data : &[u8]) {
         self.offset_pointers(offset,data.len() as u32,false);
         self.data = Some({
-            let mut tag_data = self.data.as_mut().unwrap();
+            let tag_data = self.data.as_mut().unwrap();
             let mut a = tag_data[0..offset].to_owned();
             a.reserve(tag_data.len() + data.len());
             a.append(&mut data.to_owned());
@@ -427,7 +427,7 @@ impl Tag {
     /// This function will panic if there is no tag data or memory address used by the tag.
     pub fn delete_data(&mut self, offset : usize, size : usize) {
         self.offset_pointers(offset+size,size as u32,true);
-        let mut tag_data = self.data.as_mut().unwrap();
+        let tag_data = self.data.as_mut().unwrap();
         for _ in 0..size {
             tag_data.remove(offset);
         }
@@ -442,7 +442,7 @@ impl Tag {
     pub fn offset_pointers(&mut self, offset : usize, size : u32, subtract : bool) {
         let min_memory_address = *self.memory_address.as_ref().unwrap() + offset as u32;
         let pointers = self.p_pointers();
-        let mut tag_data = self.data.as_mut().unwrap();
+        let tag_data = self.data.as_mut().unwrap();
         for i in pointers {
             let address = LittleEndian::read_u32(&tag_data[i..]);
             if address >= min_memory_address {
