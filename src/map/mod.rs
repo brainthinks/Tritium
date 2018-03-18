@@ -639,7 +639,7 @@ impl Map {
     ///
     /// If the cache file is over 2 GiB or an error occurs, this function will result in an `Err`.
     pub fn as_cache_file(&self) -> Result<Vec<u8>,&'static str> {
-        let mut header = [0u8 ; 0x800];
+        let mut header = vec![0u8 ; 0x800];
         LittleEndian::write_u32(&mut header[0x0..],0x68656164);
         LittleEndian::write_u32(&mut header[0x7FC..],0x666F6F74);
         LittleEndian::write_u32(&mut header[0x4..], self.kind.0.as_u32());
@@ -989,7 +989,7 @@ impl Map {
 
         // Write tag data header
         let mut tag_data = {
-            let mut tag_header = [0u8; 0x28];
+            let mut tag_header = vec![0u8; 0x28];
             let tag_header_len = tag_header.len();
 
             // Tag array address
